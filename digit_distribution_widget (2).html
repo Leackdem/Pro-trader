@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digit distribution — live Deriv widget</title>
+<style>
+  :root{
+    --bg:#0A0D12;
+    --panel:#12161F;
+    --panel-2:#171C27;
+    --line:#232936;
+    --line-soft:#1B212C;
+    --text:#E6E9EE;
+    --text-dim:#8891A0;
+    --text-faint:#525A68;
+    --even:#2FD8C4;
+    --even-dim:#12433D;
+    --odd:#FF7A5C;
+    --odd-dim:#4A2A21;
+    --live:#F4C452;
+    --mono:'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --sans:'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--sans);height:100%;}
+  body{min-height:600px;position:relative;overflow-x:hidden;}
+
+  .stage{
+    position:relative;
+    min-height:600px;
+    padding:28px 24px 40px 64px;
+  }
+  .stage-label{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--text-faint);
+    margin:0 0 6px;
+  }
+  .stage-title{
+    font-size:20px;
+    font-weight:600;
+    margin:0 0 22px;
+    color:var(--text);
+  }
+  .ticker-strip{
+    display:flex;
+    gap:18px;
+    flex-wrap:wrap;
+    padding:14px 16px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    margin-bottom:18px;
+  }
+  .ticker-item{font-family:var(--mono);font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:8px;}
+  .ticker-item .val{color:var(--text);font-weight:600;}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--even);flex:none;}
+  .dot.down{background:var(--odd);}
+
+  .hint{
+    font-size:13px;
+    color:var(--text-dim);
+    line-height:1.6;
+    max-width:420px;
+  }
+  .hint b{color:var(--text);font-weight:600;}
+
+  /* left rail toggle */
+  .rail{
+    position:absolute;
+    left:0; top:0; bottom:0;
+    width:44px;
+    background:var(--panel);
+    border-right:1px solid var(--line);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding-top:20px;
+  }
+  .rail-btn{
+    width:32px;height:32px;
+    border-radius:8px;
+    background:transparent;
+    border:1px solid var(--line);
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    grid-template-rows:1fr 1fr;
+    gap:4px;
+    place-items:center;
+    padding:8px;
+    cursor:pointer;
+  }
+  .rail-btn:hover{border-color:var(--even);background:var(--panel-2);}
+  .rail-btn.active{border-color:var(--even);background:var(--even-dim);}
+  .rail-btn i{
+    width:5px;height:5px;border-radius:50%;
+    background:var(--text-dim);
+  }
+  .rail-btn.active i{background:var(--even);}
+  .rail-caption{
+    writing-mode:vertical-rl;
+    text-orientation:mixed;
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:.12em;
+    color:var(--text-faint);
+    margin-top:12px;
+  }
+
+  /* floating panel */
+  .overlay{
+    position:absolute;
+    inset:0;
+    background:rgba(6,8,11,0.55);
+    display:none;
+    z-index:5;
+  }
+  .overlay.open{display:block;}
+
+  .panel{
+    position:absolute;
+    left:56px;
+    top:20px;
+    width:340px;
+    max-width:calc(100% - 76px);
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:14px;
+    box-shadow:0 24px 60px rgba(0,0,0,0.5);
+    opacity:0;
+    transform:translateX(-12px);
+    pointer-events:none;
+    transition:opacity .18s ease, transform .18s ease;
+    z-index:6;
+  }
+  .panel.open{opacity:1;transform:translateX(0);pointer-events:auto;}
+
+  .panel-head{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    padding:16px 16px 12px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .panel-title{font-size:14px;font-weight:600;margin:0 0 3px;}
+  .panel-sub{
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--text-faint);
+    display:flex;align-items:center;gap:6px;
+    margin:0;
+  }
+  .live-pulse{
+    width:6px;height:6px;border-radius:50%;
+    background:var(--live);
+    animation:pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(244,196,82,.5);}
+    50%{opacity:.55;box-shadow:0 0 0 4px rgba(244,196,82,0);}
+  }
+  .close-btn{
+    background:none;border:none;color:var(--text-faint);
+    font-size:16px;cursor:pointer;line-height:1;padding:2px 4px;
+  }
+  .close-btn:hover{color:var(--text);}
+
+  .panel-body{padding:14px 16px 16px;}
+
+  .stream{
+    display:flex;
+    gap:4px;
+    overflow:hidden;
+    margin-bottom:16px;
+    padding:8px 0;
+  }
+  .chip{
+    flex:none;
+    width:22px;height:22px;
+    border-radius:6px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    background:var(--panel-2);
+    color:var(--text-dim);
+    border:1px solid var(--line-soft);
+    transition:transform .15s ease;
+  }
+  .chip.odd{color:var(--odd);}
+  .chip.even{color:var(--even);}
+  .chip.newest{
+    transform:scale(1.12);
+    border-color:currentColor;
+  }
+
+  .bars{
+    display:flex;
+    align-items:flex-end;
+    gap:6px;
+    height:120px;
+    padding:0 2px 4px;
+    border-bottom:1px solid var(--line-soft);
+    margin-bottom:10px;
+  }
+  .bar-col{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-end;
+    height:100%;
+    gap:6px;
+  }
+  .bar-pct{
+    font-family:var(--mono);
+    font-size:9.5px;
+    color:var(--text-faint);
+  }
+  .bar{
+    width:100%;
+    max-width:20px;
+    border-radius:3px 3px 0 0;
+    background:var(--panel-2);
+    transition:height .35s cubic-bezier(.2,.8,.2,1), background .2s ease;
+    min-height:2px;
+  }
+  .bar.even{background:var(--even-dim);}
+  .bar.odd{background:var(--odd-dim);}
+  .bar.lead.even{background:var(--even);}
+  .bar.lead.odd{background:var(--odd);}
+  .bar-label{
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:600;
+    color:var(--text-dim);
+  }
+
+  .legend{
+    display:flex;
+    gap:14px;
+    font-size:10.5px;
+    color:var(--text-faint);
+    margin-bottom:16px;
+    font-family:var(--mono);
+  }
+  .legend span{display:flex;align-items:center;gap:5px;}
+  .sw{width:8px;height:8px;border-radius:2px;}
+  .sw.even{background:var(--even);}
+  .sw.odd{background:var(--odd);}
+
+  .stats{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    margin-bottom:14px;
+  }
+  .stat{
+    background:var(--panel-2);
+    border:1px solid var(--line-soft);
+    border-radius:8px;
+    padding:9px 10px;
+  }
+  .stat-label{
+    font-size:10px;
+    color:var(--text-faint);
+    margin:0 0 4px;
+    letter-spacing:.03em;
+  }
+  .stat-val{
+    font-family:var(--mono);
+    font-size:15px;
+    font-weight:600;
+    margin:0;
+    color:var(--text);
+  }
+  .stat-val.even-c{color:var(--even);}
+  .stat-val.odd-c{color:var(--odd);}
+
+  .footrow{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+  }
+  .ticks-count{
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--text-faint);
+  }
+  .reset-btn{
+    font-family:var(--sans);
+    font-size:12px;
+    font-weight:500;
+    color:var(--text-dim);
+    background:transparent;
+    border:1px solid var(--line);
+    border-radius:7px;
+    padding:6px 12px;
+    cursor:pointer;
+  }
+  .reset-btn:hover{color:var(--text);border-color:var(--text-dim);}
+
+  .disclaimer{
+    font-size:9.5px;
+    color:var(--text-faint);
+    text-align:center;
+    padding-top:10px;
+    margin-top:2px;
+    border-top:1px solid var(--line-soft);
+    line-height:1.5;
+  }
+
+  @media (max-width:420px){
+    .stage{padding:24px 16px 32px 56px;}
+    .panel{left:48px;width:296px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="rail" id="rail">
+    <button class="rail-btn" id="railBtn" aria-label="Toggle digit distribution">
+      <i></i><i></i><i></i><i></i>
+    </button>
+    <div class="rail-caption">DIGITS</div>
+  </div>
+
+  <p class="stage-label">Demo shell</p>
+  <h1 class="stage-title">Trading workspace backdrop</h1>
+
+  <div class="ticker-strip">
+    <div class="ticker-item"><span class="dot"></span>Vol 75 <span class="val" id="t1">—</span></div>
+    <div class="ticker-item"><span class="dot down"></span>Vol 100 <span class="val" id="t2">—</span></div>
+    <div class="ticker-item"><span class="dot"></span>Vol 10 (1s) <span class="val" id="t3">—</span></div>
+  </div>
+
+  <p class="hint">The four‑dot icon on the left rail opens a last‑digit distribution panel fed by <b>live public tick data</b> from the Deriv API. No login and no account — it only reads the public price stream for the selected symbol.</p>
+  <p class="hint" id="configWarning" style="display:none;color:var(--odd);">Not connected — set <b>CONFIG.app_id</b> near the top of the script to your Deriv app_id, then reload.</p>
+
+  <div class="overlay" id="overlay"></div>
+
+  <div class="panel" id="panel" role="dialog" aria-label="Digit distribution">
+    <div class="panel-head">
+      <div>
+        <p class="panel-title">Digit distribution</p>
+        <p class="panel-sub"><span class="live-pulse"></span><span id="connLabel">CONNECTING&hellip;</span></p>
+      </div>
+      <button class="close-btn" id="closeBtn" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="stream" id="stream"></div>
+
+      <div class="bars" id="bars"></div>
+
+      <div class="legend">
+        <span><i class="sw even"></i>Even</span>
+        <span><i class="sw odd"></i>Odd</span>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <p class="stat-label">Even / Odd</p>
+          <p class="stat-val" id="evenOdd">— / —</p>
+        </div>
+        <div class="stat">
+          <p class="stat-label">Over 5 / Under 5</p>
+          <p class="stat-val" id="overUnder">— / —</p>
+        </div>
+        <div class="stat">
+          <p class="stat-label">Most frequent</p>
+          <p class="stat-val" id="mostFreq">—</p>
+        </div>
+        <div class="stat">
+          <p class="stat-label">Current streak</p>
+          <p class="stat-val" id="streak">—</p>
+        </div>
+      </div>
+
+      <div class="footrow">
+        <span class="ticks-count" id="tickCount">0 ticks</span>
+        <button class="reset-btn" id="resetBtn">Reset</button>
+      </div>
+
+      <p class="disclaimer">Random simulated digits for demonstration only. No connection to any exchange, broker, or account.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var counts = new Array(10).fill(0);
+  var log = [];
+  var maxWindow = 200;
+  var lastDigit = null;
+  var streakDigit = null;
+  var streakLen = 0;
+
+  var railBtn = document.getElementById('railBtn');
+  var panel = document.getElementById('panel');
+  var overlay = document.getElementById('overlay');
+  var closeBtn = document.getElementById('closeBtn');
+  var resetBtn = document.getElementById('resetBtn');
+  var barsEl = document.getElementById('bars');
+  var streamEl = document.getElementById('stream');
+
+  function buildBars(){
+    barsEl.innerHTML = '';
+    for(var d=0; d<10; d++){
+      var col = document.createElement('div');
+      col.className = 'bar-col';
+      col.innerHTML =
+        '<span class="bar-pct" id="pct'+d+'">0%</span>' +
+        '<div class="bar '+(d%2===0?'even':'odd')+'" id="bar'+d+'" style="height:2px"></div>' +
+        '<span class="bar-label">'+d+'</span>';
+      barsEl.appendChild(col);
+    }
+  }
+  buildBars();
+
+  function fmtPct(n){
+    return Math.round(n) + '%';
+  }
+
+  function render(){
+    var total = log.length;
+    var leadDigit = 0, leadCount = -1;
+    for(var d=0; d<10; d++){
+      if(counts[d] > leadCount){ leadCount = counts[d]; leadDigit = d; }
+    }
+    for(var d2=0; d2<10; d2++){
+      var pct = total ? (counts[d2] / total) * 100 : 0;
+      var barEl = document.getElementById('bar'+d2);
+      var pctEl = document.getElementById('pct'+d2);
+      var h = Math.max(2, Math.round((pct/100) * 100));
+      barEl.style.height = h + 'px';
+      pctEl.textContent = fmtPct(pct);
+      barEl.classList.toggle('lead', d2 === leadDigit && total > 0);
+    }
+
+    var evenCount = 0, oddCount = 0, overCount = 0, underCount = 0;
+    for(var d3=0; d3<10; d3++){
+      if(d3 % 2 === 0) evenCount += counts[d3]; else oddCount += counts[d3];
+      if(d3 > 4) overCount += counts[d3]; else underCount += counts[d3];
+    }
+    document.getElementById('evenOdd').textContent =
+      total ? fmtPct(evenCount/total*100) + ' / ' + fmtPct(oddCount/total*100) : '— / —';
+    document.getElementById('overUnder').textContent =
+      total ? fmtPct(overCount/total*100) + ' / ' + fmtPct(underCount/total*100) : '— / —';
+    document.getElementById('mostFreq').textContent = total ? leadDigit : '—';
+    document.getElementById('streak').textContent = streakLen ? (streakDigit + ' \u00d7 ' + streakLen) : '—';
+    document.getElementById('tickCount').textContent = total + ' ticks';
+
+    var evenValEl = document.getElementById('evenOdd');
+    evenValEl.className = 'stat-val';
+
+    streamEl.innerHTML = '';
+    var recent = log.slice(-14);
+    recent.forEach(function(digit, i){
+      var chip = document.createElement('div');
+      var isOdd = digit % 2 === 1;
+      chip.className = 'chip ' + (isOdd ? 'odd' : 'even') + (i === recent.length-1 ? ' newest' : '');
+      chip.textContent = digit;
+      streamEl.appendChild(chip);
+    });
+  }
+
+  function pushDigit(digit){
+    log.push(digit);
+    counts[digit]++;
+    if(log.length > maxWindow){
+      var removed = log.shift();
+      counts[removed]--;
+    }
+    if(digit === streakDigit){
+      streakLen++;
+    } else {
+      streakDigit = digit;
+      streakLen = 1;
+    }
+    lastDigit = digit;
+    render();
+  }
+
+  var CONFIG = {
+    app_id: '33Sdf3D21RYb5GIjDAxQI',
+    ws_endpoint: 'wss://ws.derivws.com/websockets/v3',
+    symbol: 'R_100'
+  };
+
+  var ws = null;
+  var reqId = 1;
+  var pending = {};
+  var tickSubscriptionId = null;
+  var decimalPlaces = 2;
+  var connLabel = document.getElementById('connLabel');
+  var configWarning = document.getElementById('configWarning');
+
+  function wsSend(payload){
+    return new Promise(function(resolve, reject){
+      var id = reqId++;
+      payload.req_id = id;
+      pending[id] = { resolve: resolve, reject: reject };
+      ws.send(JSON.stringify(payload));
+    });
+  }
+
+  function setConnLabel(text){
+    if(connLabel) connLabel.textContent = text;
+  }
+
+  function extractLastDigit(quote){
+    var str = Number(quote).toFixed(decimalPlaces);
+    return parseInt(str.charAt(str.length - 1), 10);
+  }
+
+  function fetchPipSize(){
+    return wsSend({ active_symbols: 'brief', product_type: 'basic' }).then(function(res){
+      var list = res.active_symbols || [];
+      var match = list.find(function(s){ return s.symbol === CONFIG.symbol; });
+      if(match && match.pip){
+        var parts = String(match.pip).split('.');
+        decimalPlaces = parts[1] ? parts[1].length : 0;
+      }
+    }).catch(function(){
+      decimalPlaces = 2;
+    });
+  }
+
+  function subscribeTicks(){
+    wsSend({ ticks: CONFIG.symbol, subscribe: 1 }).then(function(res){
+      if(res.subscription) tickSubscriptionId = res.subscription.id;
+      if(res.tick) pushDigit(extractLastDigit(res.tick.quote));
+      setConnLabel('LIVE \u00b7 ' + CONFIG.symbol);
+    }).catch(function(err){
+      setConnLabel('SUBSCRIBE FAILED');
+    });
+  }
+
+  function unsubscribeTicks(){
+    if(tickSubscriptionId){
+      wsSend({ forget: tickSubscriptionId }).catch(function(){});
+      tickSubscriptionId = null;
+    }
+  }
+
+  function connectWS(){
+    if(CONFIG.app_id === 'YOUR_APP_ID_HERE'){
+      if(configWarning) configWarning.style.display = 'block';
+      setConnLabel('NOT CONFIGURED');
+      return;
+    }
+    setConnLabel('CONNECTING\u2026');
+    var endpoint = CONFIG.ws_endpoint + '?app_id=' + encodeURIComponent(CONFIG.app_id);
+    ws = new WebSocket(endpoint);
+
+    ws.onopen = function(){
+      fetchPipSize().then(subscribeTicks);
+    };
+
+    ws.onmessage = function(evt){
+      var data = JSON.parse(evt.data);
+
+      if(data.req_id && pending[data.req_id]){
+        if(data.error){
+          pending[data.req_id].reject(data.error);
+        } else {
+          pending[data.req_id].resolve(data);
+        }
+        delete pending[data.req_id];
+        return;
+      }
+
+      if(data.msg_type === 'tick' && data.tick && data.tick.symbol === CONFIG.symbol){
+        pushDigit(extractLastDigit(data.tick.quote));
+      }
+    };
+
+    ws.onerror = function(){
+      setConnLabel('CONNECTION ERROR');
+    };
+    ws.onclose = function(){
+      setConnLabel('DISCONNECTED');
+      ws = null;
+    };
+  }
+
+  function disconnectWS(){
+    if(ws && ws.readyState === WebSocket.OPEN){
+      unsubscribeTicks();
+      ws.close();
+    }
+    ws = null;
+  }
+
+  function start(){
+    connectWS();
+  }
+  function stop(){
+    disconnectWS();
+  }
+
+  function openPanel(){
+    panel.classList.add('open');
+    overlay.classList.add('open');
+    railBtn.classList.add('active');
+    start();
+  }
+  function closePanel(){
+    panel.classList.remove('open');
+    overlay.classList.remove('open');
+    railBtn.classList.remove('active');
+    stop();
+  }
+
+  railBtn.addEventListener('click', function(){
+    if(panel.classList.contains('open')) closePanel(); else openPanel();
+  });
+  closeBtn.addEventListener('click', closePanel);
+  overlay.addEventListener('click', closePanel);
+  resetBtn.addEventListener('click', function(){
+    counts = new Array(10).fill(0);
+    log = [];
+    streakDigit = null;
+    streakLen = 0;
+    render();
+  });
+
+  render();
+
+  function randTicker(base, vol){
+    return (base + (Math.random()-0.5)*vol).toFixed(4);
+  }
+  function tickHeader(){
+    document.getElementById('t1').textContent = randTicker(299.66, 2);
+    document.getElementById('t2').textContent = randTicker(9672.5, 8);
+    document.getElementById('t3').textContent = randTicker(628.0, 1.5);
+  }
+  tickHeader();
+  setInterval(tickHeader, 1400);
+})();
+</script>
+
+</body>
+</html>
